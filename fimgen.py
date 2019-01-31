@@ -1,4 +1,5 @@
 # This will accept an RPM file as an argument, and write out a json representing all files in the RPM
+# By: Ash Wilson- June 2015
 
 import os
 import re
@@ -34,12 +35,12 @@ def main(argv):
         sys.exit(2)
     pkg_type = determine_pkg_type(infile)
     rulecoll = []
-    attr = {"pkg_name": '',
-            "pkg_type": '',
+    attr = {"pkg_name": ' ',
+            "pkg_type": ' ',
             "file_name": str(os.path.split(infile)[1]),
-            "distro": '',
-            "pkg_ver": '',
-            "pkg_desc": '',
+            "distro": ' ',
+            "pkg_ver": ' ',
+            "pkg_desc": ' ',
             "pkg_type": determine_pkg_type(infile)
             }
     if pkg_type == "RPM":
@@ -52,15 +53,11 @@ def main(argv):
 
     outfile = drop_dir + attr["file_name"] +  '--fim-policy.json'
     policyname = str(attr['pkg_name']) + " version " + str(attr['pkg_ver']) + " for " + str(attr['pkg_type']) + " distributions"
-    poldesc = "Package Description: \n" + attr['pkg_desc'] + "\n\n" \
-            "This policy was auto-generated from the " + attr['pkg_name'] + " package by fimgen (https://github.com/ashmastaflash/fimgen)\n" \
-            "Original file: " + attr['file_name'] + "\n" \
-            "Distribution: " + attr['distro'] + "\n" \
-            "Version: " + attr['pkg_ver'] + "\n"
-    #print "File name: ", outfile
-    #print "Policy Name: \n", policyname, "\n\n"
-    #print "Policy Description: ", poldesc, "\n\n"
-    #print "File List:\n"
+    poldesc = "Package Description: \n" + str(attr['pkg_desc']) + "\n\n" \
+            "This policy was auto-generated from the " + str(attr['pkg_name']) + " package by fimgen (https://github.com/ashmastaflash/fimgen)\n" \
+            "Original file: " + str(attr['file_name']) + "\n" \
+            "Distribution: " + str(attr['distro']) + "\n" \
+            "Version: " + str(attr['pkg_ver']) + "\n"
     for f in filelist:
         rulecoll.append(create_fim_rule(f))
 
@@ -70,7 +67,6 @@ def main(argv):
                    "platform": "linux",
                    "rules": rulecoll
                    }}
-    print "Resulting Policy: \n", json.dumps(policyout)
     print "Creating file: ", outfile
     with open(outfile, 'w') as o:
         o.write(json.dumps(policyout))
@@ -78,25 +74,38 @@ def main(argv):
 
 
 def create_fim_rule(f):
+# The suppress list contains regex matches for documentation and other
+# files you won't want any sort of high-alert attention directed to
+# in the event they change.
+    suppress = ['^/usr/share/doc',
+                '^/usr/share/man']
     fimrule = {"target": f,
                "description": "",
                "recurse": False,
                "critical": True,
                "alert": False,
                }
+    for s in suppress:
+        if re.search(s,f):
+            fimrule["critical"] = False
+            return fimrule
+        else:
+            pass
     return fimrule
 
 def handle_rpm(f, attr):
     filelist = []
     with rpmfile.open(f) as rpm:
-        #for l in  rpm.headers.keys():
-        #    print l ,'=====',rpm.headers.get(l),'\n'
         attr['pkg_name'] = rpm.headers.get('name')
         attr['pkg_desc'] = rpm.headers.get('description')
         attr['distro'] = rpm.headers.get('distribution')
         attr['pkg_ver'] = rpm.headers.get('version')
     for member in rpm.getmembers():
-        filelist.append(member.name.lstrip('.'))
+        if not validate_path(member.name):
+            print "Invalid character(s) in path, excluding: ", member.name
+            pass
+        else:
+            filelist.append(member.name.lstrip('.'))
     return(attr, filelist)
 
 def handle_dpkg(f, attr):
@@ -107,7 +116,10 @@ def handle_dpkg(f, attr):
     attr['distro'] = 'none'
     attr['pkg_ver'] = inspect_package_fields(f)['Version']
     for k in inspect_package_contents(f):
-        if re.search(filematch, k):
+        if not validate_path(k):
+            print "Invalid character(s) in path, excluding: ",  k
+            pass
+        elif re.search(filematch, k):
             pass
         else:
             filelist.append(str(k))
@@ -122,6 +134,18 @@ def determine_pkg_type(f):
     elif re.search(dpkg_match, magical):
         return 'DPKG'
     return magical
+
+# Halo doesn't support every character that you might find in a unix file path.
+# This ensures that your policies are importable, excluding objects that will
+# fail validation.
+def validate_path(p):
+    ill_chars = ["+", "@", "%", "~", "#", "!"]
+    for c in ill_chars:
+        if c in str(p):
+            return False
+        else:
+            pass
+    return True
 
 
 if __name__ == "__main__":
