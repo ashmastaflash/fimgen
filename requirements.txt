@@ -1,0 +1,3 @@
+deb-pkg-tools==5.2
+rpmfile==0.1.4
+python-magic==0.4.15
